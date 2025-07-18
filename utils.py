@@ -4,6 +4,7 @@ import json
 import pandas as pd
 from pytrends.request import TrendReq
 from ml_model import predict_category
+from datetime import datetime
 
 def load_manual_categories():
     try:
@@ -15,13 +16,31 @@ def load_manual_categories():
 def load_proxies():
     try:
         with open("proxies.json", "r") as f:
-            return json.load(f)
+            proxies = json.load(f)
+            # "http://" eksikse ekle
+            return [p if p.startswith("http") else f"http://{p}" for p in proxies]
     except:
         return []
 
 def get_random_proxy():
     proxies = load_proxies()
     return random.choice(proxies) if proxies else None
+
+def log_feedback_history(keyword, category):
+    try:
+        with open("feedback_history.json", "r+", encoding="utf-8") as f:
+            try:
+                data = json.load(f)
+            except:
+                data = {}
+            if keyword not in data:
+                data[keyword] = []
+            data[keyword].append({"kategori": category, "tarih": datetime.now().isoformat()})
+            f.seek(0)
+            json.dump(data, f, ensure_ascii=False, indent=2)
+            f.truncate()
+    except:
+        pass
 
 def get_trend_score(keyword, geo="TR", timeframe="today 12-m"):
     proxy = get_random_proxy()
@@ -32,10 +51,9 @@ def get_trend_score(keyword, geo="TR", timeframe="today 12-m"):
         df = pytrends.interest_over_time()
         if not df.empty and keyword in df.columns:
             return round(df[keyword].mean(), 2)
-        else:
-            return 0.0
-    except:
-        return 0.0
+    except Exception as e:
+        print(f"[!] Trend hatası: {e}")
+    return 0.0
 
 def analyze_keywords(keywords, geo="TR", timeframe="today 12-m", manual_map={}):
     results = []
