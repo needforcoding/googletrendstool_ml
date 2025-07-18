@@ -7,7 +7,6 @@ from sklearn.naive_bayes import MultinomialNB
 MODEL_FILE = "model.pkl"
 VECTORIZER_FILE = "vectorizer.pkl"
 
-# Örnek eğitim verisi
 initial_data = [
     ("kolajen serum", "Cilt Bakımı"),
     ("keratin şampuan", "Saç Bakımı"),
@@ -36,14 +35,9 @@ def predict_category(text):
     X = vec.transform([text])
     return model.predict(X)[0]
 
-def update_model_with_feedback(text, label):
-    df = pd.DataFrame([(text, label)], columns=["text", "label"])
+def update_model_with_feedback(texts, labels):
     model = joblib.load(MODEL_FILE)
     vec = joblib.load(VECTORIZER_FILE)
-
-    X_new = vec.transform(df["text"])
-    y_new = df["label"]
-
-    # Yeni model eğitimi için eski veriyi tekrar yükleyip birleştirme önerilir ama burada basit tutuldu
-    model.partial_fit(X_new, y_new, classes=model.classes_)
+    X = vec.transform(texts)
+    model.partial_fit(X, labels, classes=model.classes_)
     joblib.dump(model, MODEL_FILE)
