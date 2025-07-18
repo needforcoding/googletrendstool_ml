@@ -2,64 +2,62 @@ import streamlit as st
 import json
 import pandas as pd
 import plotly.express as px
-from utils import analyze_keywords, load_manual_categories, save_feedback
+from utils import analyze_keywords, load_manual_categories
 from ml_model import update_model_with_feedback
 
-st.set_page_config(page_title="Google Trends Pro Analiz Aracı", layout="wide")
+st.set_page_config(page_title="Google Trends ML Aracı", layout="wide")
 
 with open("styles.css") as f:
     st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
-st.title("📊 Google Trends Toplu Analiz & Kategorilendirme")
-st.markdown("**Makine öğrenimi destekli kategorilendirme + geri bildirimli öğrenme** sistemiyle çalışır.")
+st.title("📊 Google Trends Toplu Analiz + ML Destekli Kategorilendirme")
 
-# Kelime Girişi
-input_json = st.text_area("📝 Kelime Öbeklerini JSON Formatında Girin", height=200, placeholder='["kolajen serum", "diş macunu"]')
+if "feedback" not in st.session_state:
+    st.session_state["feedback"] = {}
 
-# Manuel kategori JSON alanı (opsiyonel)
-manual_json_input = st.text_area("📁 Manuel Kategoriler (İsteğe Bağlı)", height=150, placeholder='{"kolajen serum": "Cilt Bakımı"}')
+# 1. Veri Girişi
+input_json = st.text_area("📝 Kelime Öbeklerini JSON Girin", height=200)
+manual_input = st.text_area("📁 Manuel Kategoriler (Opsiyonel)", height=150)
 
-# Ayarlar
+# 2. Ayarlar
 st.sidebar.header("⚙️ Ayarlar")
-geo = st.sidebar.selectbox("Ülke", ["TR", "DE", "US", "GB", "FR"])
+geo = st.sidebar.selectbox("Ülke", ["TR", "DE", "US"], index=0)
 timeframe = st.sidebar.selectbox("Zaman Aralığı", ["now 7-d", "today 1-m", "today 3-m", "today 12-m", "today 5-y"], index=3)
 
-if st.button("🚀 Araştırmayı Başlat"):
+if st.button("🚀 Analize Başla"):
     try:
         keywords = json.loads(input_json)
-        manual_map = json.loads(manual_json_input) if manual_json_input else {}
+        manual_map = json.loads(manual_input) if manual_input else {}
         df = analyze_keywords(keywords, geo=geo, timeframe=timeframe, manual_map=manual_map)
-        st.success("✅ Analiz Tamamlandı")
+        st.session_state["result_df"] = df
+
+        st.success("Analiz tamamlandı.")
         st.dataframe(df)
 
-        # Kategorilere onay sorusu
         st.subheader("🧠 Kategori Doğrulama")
         for i, row in df.iterrows():
-            key = row["Kelime"]
-            suggested = row["Kategori"]
-            col1, col2 = st.columns([2, 3])
-            with col1:
-                st.markdown(f"**{key}** için önerilen kategori: `{suggested}`")
-            with col2:
-                confirm = st.radio(f"Bu doğru mu? ({key})", ["Evet", "Hayır"], key=f"{key}_radio")
-                if confirm == "Hayır":
-                    new_cat = st.text_input(f"Yeni kategori gir ({key}):", key=f"{key}_input")
-                    if new_cat:
-                        save_feedback(key, new_cat)
-                        update_model_with_feedback(key, new_cat)
-                        st.success(f"🎯 Model güncellendi: {key} → {new_cat}")
-                elif confirm == "Evet":
-                    save_feedback(key, suggested)
+            kw = row["Kelime"]
+            default = row["Kategori"]
+            new_cat = st.text_input(f"{kw} → {default}", value=default, key=f"feedback_{kw}")
+            st.session_state["feedback"][kw] = new_cat
 
-        # Grafik
         st.subheader("📈 Trend Grafiği")
-        fig = px.bar(df.sort_values("Trend Skoru", ascending=False), x="Kelime", y="Trend Skoru", color="Kategori", text="Trend Skoru")
+        fig = px.bar(df.sort_values("Trend Skoru", ascending=False), x="Kelime", y="Trend Skoru", color="Kategori")
         st.plotly_chart(fig, use_container_width=True)
 
-        # Dışa Aktarım
-        st.subheader("📤 Çıktılar")
-        st.download_button("📁 CSV İndir", df.to_csv(index=False), "trend_sonuclar.csv", "text/csv")
-        st.download_button("📄 Markdown İndir", df.to_markdown(index=False), "trend_sonuclar.md", "text/markdown")
+        st.subheader("📤 Dışa Aktar")
+        st.download_button("📥 CSV İndir", df.to_csv(index=False), "trend_sonuclar.csv", "text/csv")
+        st.download_button("📥 Markdown İndir", df.to_markdown(index=False), "trend_sonuclar.md", "text/markdown")
 
     except Exception as e:
         st.error(f"Hata: {e}")
+
+# KAYDET butonu en altta
+if st.button("✅ Geri Bildirimleri Kaydet"):
+    try:
+        keys = list(st.session_state["feedback"].keys())
+        values = list(st.session_state["feedback"].values())
+        update_model_with_feedback(keys, values)
+        st.success("🎉 Geri bildirimler başarıyla kaydedildi ve model güncellendi.")
+    except Exception as e:
+        st.error(f"Kaydetme sırasında hata oluştu: {e}")
