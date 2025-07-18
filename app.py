@@ -2,8 +2,8 @@ import streamlit as st
 import json
 import pandas as pd
 import plotly.express as px
-from utils import analyze_keywords, load_manual_categories
-from ml_model import update_model_with_feedback
+from utils import analyze_keywords, load_manual_categories, log_feedback_history
+from ml_model import update_model_with_feedback, reset_model
 
 st.set_page_config(page_title="Google Trends ML Aracı", layout="wide")
 
@@ -15,16 +15,17 @@ st.title("📊 Google Trends Toplu Analiz + ML Destekli Kategorilendirme")
 if "feedback" not in st.session_state:
     st.session_state["feedback"] = {}
 
-# 1. Veri Girişi
-input_json = st.text_area("📝 Kelime Öbeklerini JSON Girin", height=200)
-manual_input = st.text_area("📁 Manuel Kategoriler (Opsiyonel)", height=150)
+with st.form("input_form"):
+    input_json = st.text_area("📝 Kelime Öbeklerini JSON Girin", height=200)
+    manual_input = st.text_area("📁 Manuel Kategoriler (Opsiyonel)", height=150)
 
-# 2. Ayarlar
-st.sidebar.header("⚙️ Ayarlar")
-geo = st.sidebar.selectbox("Ülke", ["TR", "DE", "US"], index=0)
-timeframe = st.sidebar.selectbox("Zaman Aralığı", ["now 7-d", "today 1-m", "today 3-m", "today 12-m", "today 5-y"], index=3)
+    st.sidebar.header("⚙️ Ayarlar")
+    geo = st.sidebar.selectbox("Ülke", ["TR", "DE", "US"], index=0)
+    timeframe = st.sidebar.selectbox("Zaman Aralığı", ["now 7-d", "today 1-m", "today 3-m", "today 12-m", "today 5-y"], index=3)
 
-if st.button("🚀 Analize Başla"):
+    submitted = st.form_submit_button("🚀 Analize Başla")
+
+if submitted:
     try:
         keywords = json.loads(input_json)
         manual_map = json.loads(manual_input) if manual_input else {}
@@ -34,12 +35,25 @@ if st.button("🚀 Analize Başla"):
         st.success("Analiz tamamlandı.")
         st.dataframe(df)
 
-        st.subheader("🧠 Kategori Doğrulama")
-        for i, row in df.iterrows():
-            kw = row["Kelime"]
-            default = row["Kategori"]
-            new_cat = st.text_input(f"{kw} → {default}", value=default, key=f"feedback_{kw}")
-            st.session_state["feedback"][kw] = new_cat
+        with st.form("feedback_form"):
+            st.subheader("🧠 Kategori Doğrulama")
+            for i, row in df.iterrows():
+                kw = row["Kelime"]
+                default = row["Kategori"]
+                new_cat = st.text_input(f"{kw} → {default}", value=default, key=f"feedback_{kw}")
+                st.session_state["feedback"][kw] = new_cat
+
+            save_clicked = st.form_submit_button("✅ Geri Bildirimleri Kaydet")
+            if save_clicked:
+                try:
+                    keys = list(st.session_state["feedback"].keys())
+                    values = list(st.session_state["feedback"].values())
+                    update_model_with_feedback(keys, values)
+                    for k, v in zip(keys, values):
+                        log_feedback_history(k, v)
+                    st.success("🎉 Model güncellendi ve geçmişe kaydedildi.")
+                except Exception as e:
+                    st.error(f"Hata: {e}")
 
         st.subheader("📈 Trend Grafiği")
         fig = px.bar(df.sort_values("Trend Skoru", ascending=False), x="Kelime", y="Trend Skoru", color="Kategori")
@@ -52,12 +66,9 @@ if st.button("🚀 Analize Başla"):
     except Exception as e:
         st.error(f"Hata: {e}")
 
-# KAYDET butonu en altta
-if st.button("✅ Geri Bildirimleri Kaydet"):
-    try:
-        keys = list(st.session_state["feedback"].keys())
-        values = list(st.session_state["feedback"].values())
-        update_model_with_feedback(keys, values)
-        st.success("🎉 Geri bildirimler başarıyla kaydedildi ve model güncellendi.")
-    except Exception as e:
-        st.error(f"Kaydetme sırasında hata oluştu: {e}")
+# 🔁 Modeli Sıfırla (onaylı)
+with st.sidebar:
+    if st.button("🧨 Modeli Sıfırla"):
+        if st.confirm("Modeli sıfırlamak istediğinize emin misiniz? Bu işlem geri alınamaz."):
+            reset_model()
+            st.success("Model sıfırlandı ve yeniden eğitildi.")
