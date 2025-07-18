@@ -41,3 +41,10 @@ def update_model_with_feedback(texts, labels):
     X = vec.transform(texts)
     model.partial_fit(X, labels, classes=model.classes_)
     joblib.dump(model, MODEL_FILE)
+
+def reset_model():
+    if os.path.exists(MODEL_FILE):
+        os.remove(MODEL_FILE)
+    if os.path.exists(VECTORIZER_FILE):
+        os.remove(VECTORIZER_FILE)
+    train_and_save_model()
