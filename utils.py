@@ -6,8 +6,8 @@ from pytrends.request import TrendReq
 from ml_model import predict_category
 from datetime import datetime
 
-# ⏺️ PROXY DURUMU – Global kontrol bayrağı
-USE_PROXY = True
+# Proxy kontrolü için Streamlit durumunu saklayacağız
+import streamlit as st
 
 def load_manual_categories():
     try:
@@ -44,29 +44,23 @@ def log_feedback_history(keyword, category):
     except:
         pass
 
-def get_trend_score(keyword, geo="TR", timeframe="today 12-m"):
-    proxy = get_random_proxy() if USE_PROXY else None
+def get_trend_score(keyword, geo="TR", timeframe="today 12-m", use_proxy=False):
+    proxy = get_random_proxy() if use_proxy else None
     proxy_dict = {"https": proxy, "http": proxy} if proxy else None
-
     try:
-        if proxy:
-            print(f"[Proxy Kullanılıyor] {proxy}")
-        else:
-            print("[Proxy Kapalı] Doğrudan bağlantı")
-            
         pytrends = TrendReq(hl='tr-TR', tz=180, timeout=(10, 25), proxies=proxy_dict)
         pytrends.build_payload([keyword], timeframe=timeframe, geo=geo)
         df = pytrends.interest_over_time()
         if not df.empty and keyword in df.columns:
             return round(df[keyword].mean(), 2)
     except Exception as e:
-        print(f"[!] Trend hatası: {e}")
+        st.session_state.setdefault("trend_errors", []).append(f"[Trend Error] {keyword}: {e}")
     return 0.0
 
-def analyze_keywords(keywords, geo="TR", timeframe="today 12-m", manual_map={}):
+def analyze_keywords(keywords, geo="TR", timeframe="today 12-m", manual_map={}, use_proxy=False):
     results = []
     for kw in keywords:
-        score = get_trend_score(kw, geo=geo, timeframe=timeframe)
+        score = get_trend_score(kw, geo=geo, timeframe=timeframe, use_proxy=use_proxy)
         category = manual_map.get(kw) or predict_category(kw)
         results.append({
             "Kelime": kw,
@@ -75,5 +69,5 @@ def analyze_keywords(keywords, geo="TR", timeframe="today 12-m", manual_map={}):
             "Zaman Aralığı": timeframe,
             "Trend Skoru": score
         })
-        time.sleep(random.uniform(4, 8))  # anti-ban için
+        time.sleep(random.uniform(4, 8))
     return pd.DataFrame(results)
