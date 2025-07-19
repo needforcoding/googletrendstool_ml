@@ -114,8 +114,18 @@ def get_trend_score(keyword, geo="TR", timeframe="today 12-m", use_proxy=False):
         logging.info(f"'{keyword}' için ortalama trend skoru: {score}")
         return score
 
+    except TypeError as e:
+        if "object of type 'NoneType' has no len()" in str(e):
+            error_msg = f"Pytrends ('{keyword}') için veri alamadı. Bu genellikle Google API'sindeki geçici bir değişiklikten veya ağ sorunlarından kaynaklanır. Lütfen daha sonra tekrar deneyin."
+            logging.error(f"Pytrends NoneType hatası ('{keyword}'): {e}")
+            st.session_state.setdefault("trend_errors", []).append(error_msg)
+        else:
+            error_msg = f"Pytrends içinde beklenmedik bir tip hatası ('{keyword}'): {e}"
+            logging.error(error_msg)
+            st.session_state.setdefault("trend_errors", []).append(error_msg)
+        return 0.0
     except Exception as e:
-        error_msg = f"Pytrends hatası ('{keyword}'): {e}"
+        error_msg = f"Pytrends genel hatası ('{keyword}'): {e}"
         logging.error(error_msg)
         st.session_state.setdefault("trend_errors", []).append(error_msg)
         return 0.0
