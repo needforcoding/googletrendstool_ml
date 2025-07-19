@@ -2,6 +2,7 @@ import time
 import random
 import json
 import pandas as pd
+import requests
 from pytrends.request import TrendReq
 from ml_model import predict_category
 from datetime import datetime
@@ -41,14 +42,54 @@ def load_proxies():
         logging.error("proxies.json dosyası bozuk, proxy'ler kullanılmayacak.")
         return []
 
-def get_random_proxy():
+def check_proxy(proxy):
+    """Verilen proxy'nin çalışıp çalışmadığını test eder."""
+    proxy_dict = {"http": proxy, "https": proxy}
+    try:
+        response = requests.get("https://www.google.com", proxies=proxy_dict, timeout=5)
+        if response.status_code == 200:
+            logging.info(f"Proxy {proxy} çalışıyor.")
+            return True
+    except requests.exceptions.RequestException as e:
+        logging.warning(f"Proxy {proxy} çalışmıyor: {e}")
+    return False
+
+def get_random_proxy(max_tries=5):
+    """Çalışan bir proxy bulana kadar rastgele proxy'ler dener."""
     proxies = load_proxies()
-    return random.choice(proxies) if proxies else None
+    if not proxies:
+        return None
+
+    tried_proxies = set()
+    for _ in range(max_tries):
+        if len(tried_proxies) == len(proxies):
+            logging.warning("Tüm proxy'ler denendi, çalışan bulunamadı.")
+            return None # Denenecek yeni proxy kalmadı.
+
+        proxy = random.choice(proxies)
+        if proxy in tried_proxies:
+            continue
+
+        tried_proxies.add(proxy)
+        if check_proxy(proxy):
+            return proxy
+
+    logging.error(f"{max_tries} denemeden sonra çalışan proxy bulunamadı.")
+    return None
 
 
 
 def get_trend_score(keyword, geo="TR", timeframe="today 12-m", use_proxy=False):
-    proxy = get_random_proxy() if use_proxy else None
+    proxy = None
+    if use_proxy:
+        proxy = get_random_proxy()
+        if not proxy:
+            error_msg = "Çalışan bir proxy bulunamadı. Lütfen proxy listenizi kontrol edin veya proxy olmadan devam edin."
+            logging.error(error_msg)
+            if error_msg not in st.session_state.get("trend_errors", []):
+                 st.session_state.setdefault("trend_errors", []).append(error_msg)
+            return 0.0
+
     proxy_dict = {"https": proxy, "http": proxy} if proxy else None
 
     log_message = f"Trend isteği: Kelime='{keyword}', Ülke='{geo}', Proxy={proxy is not None}"
