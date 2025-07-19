@@ -75,25 +75,37 @@ def log_feedback_history(keyword, category):
 def get_trend_score(keyword, geo="TR", timeframe="today 12-m", use_proxy=False, max_retries=3, available_proxies=None):
     """
     Google Trends'den bir anahtar kelimenin ortalama trend skorunu alır.
-    Oturum yönetimi ve başarısız proxy'leri atlama mekanizması içerir.
+    Cookie, oturum yönetimi ve başarısız proxy'leri atlama mekanizması içerir.
     """
     if use_proxy and available_proxies is None:
         available_proxies = load_proxies()
 
-    # Istekler için bir oturum oluştur
-    session = requests.Session()
-    # Standart bir tarayıcı gibi görünmek için User-Agent ekle
-    session.headers.update({
+    # Istekler için başlıkları hazırla
+    headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-    })
+    }
+
+    # Cookie dosyasını oku ve başlıklara ekle
+    cookie_file = "cookie.txt"
+    if os.path.exists(cookie_file):
+        try:
+            with open(cookie_file, 'r', encoding='utf-8') as f:
+                cookie_content = f.read().strip()
+                if cookie_content:
+                    headers['cookie'] = cookie_content
+                    logger.info("Cookie dosyası başarıyla yüklendi ve isteklere eklendi.")
+        except Exception as e:
+            logger.warning(f"Cookie dosyası okunurken bir hata oluştu: {e}")
 
     for attempt in range(max_retries):
         proxy = None
         if use_proxy and available_proxies:
             proxy = random.choice(available_proxies)
         
-        # Oturumun proxy ayarlarını güncelle
-        session.proxies = {"https": proxy, "http": proxy} if proxy else {}
+        requests_args = {
+            'headers': headers,
+            'proxies': {"https": proxy, "http": proxy} if proxy else None
+        }
 
         try:
             logger.info(
@@ -101,8 +113,7 @@ def get_trend_score(keyword, geo="TR", timeframe="today 12-m", use_proxy=False, 
                 f"(Geo: {geo}, Proxy: {proxy or 'Yok'})"
             )
 
-            # Pytrends'e oluşturduğumuz oturumu ver
-            pytrends = TrendReq(hl="tr-TR", tz=180, timeout=(10, 25), requests_args={'session': session})
+            pytrends = TrendReq(hl="tr-TR", tz=180, timeout=(20, 30), requests_args=requests_args)
             pytrends.build_payload([keyword], timeframe=timeframe, geo=geo)
             df = pytrends.interest_over_time()
 
@@ -126,7 +137,7 @@ def get_trend_score(keyword, geo="TR", timeframe="today 12-m", use_proxy=False, 
                 logger.info(f"Proxy {proxy} başarısız olduğu için listeden kaldırıldı.")
 
             if attempt < max_retries - 1:
-                wait_time = random.uniform(5, 10) # Bekleme süresini biraz artır
+                wait_time = random.uniform(5, 10)
                 logger.info(f"Yeniden denemeden önce {wait_time:.1f} saniye bekleniyor...")
                 time.sleep(wait_time)
 

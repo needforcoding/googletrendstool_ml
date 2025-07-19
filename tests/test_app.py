@@ -20,6 +20,8 @@ def setup_test_environment():
         f.write('["1.1.1.1:8080", "2.2.2.2:8080"]')
     with open("test_manual_categories.json", "w") as f:
         f.write('{"test kelime": "test kategori"}')
+    with open("cookie.txt", "w") as f:
+        f.write("TEST_COOKIE=12345")
 
     # Modeli eğit
     train_model(default_data)
@@ -28,7 +30,7 @@ def setup_test_environment():
 
     # Test sonrası temizlik
     files_to_remove = [
-        "test_proxies.json", "test_manual_categories.json",
+        "test_proxies.json", "test_manual_categories.json", "cookie.txt",
         "model.joblib", "vectorizer.joblib", "feedback_history.json", "app.log"
     ]
     for f in files_to_remove:
@@ -128,16 +130,12 @@ def test_init_session_state():
 
 # --- Entegrasyon Testi ---
 
-@patch('utils.requests.Session')
 @patch('utils.TrendReq')
-def test_full_run_with_mock_api(mock_trend_req, mock_session, setup_test_environment):
-    """Uçtan uca bir senaryoyu mock API ile test eder ve oturum kullanımını doğrular."""
+def test_full_run_with_mock_api_and_cookie(mock_trend_req, setup_test_environment):
+    """Uçtan uca bir senaryoyu mock API ve cookie ile test eder."""
     # Pytrends'in davranışını taklit et
     mock_interest_df = pd.DataFrame({"test keyword": [50, 60, 70]})
     mock_trend_req.return_value.interest_over_time.return_value = mock_interest_df
-
-    # Session objesinin mock'unu al
-    mock_session_instance = mock_session.return_value
 
     keywords = ["test keyword"]
     df = analyze_keywords(keywords, geo="TR", use_proxy=False)
@@ -146,8 +144,9 @@ def test_full_run_with_mock_api(mock_trend_req, mock_session, setup_test_environ
     mock_trend_req.assert_called()
     call_args = mock_trend_req.call_args
     assert 'requests_args' in call_args.kwargs
-    assert 'session' in call_args.kwargs['requests_args']
-    assert call_args.kwargs['requests_args']['session'] == mock_session_instance
+    assert 'headers' in call_args.kwargs['requests_args']
+    assert 'cookie' in call_args.kwargs['requests_args']['headers']
+    assert call_args.kwargs['requests_args']['headers']['cookie'] == "TEST_COOKIE=12345"
 
     # Sonuçları doğrula
     assert len(df) == 1
