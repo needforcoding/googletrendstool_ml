@@ -128,16 +128,28 @@ def test_init_session_state():
 
 # --- Entegrasyon Testi ---
 
+@patch('utils.requests.Session')
 @patch('utils.TrendReq')
-def test_full_run_with_mock_api(mock_trend_req, setup_test_environment):
-    """Uçtan uca bir senaryoyu mock API ile test eder."""
+def test_full_run_with_mock_api(mock_trend_req, mock_session, setup_test_environment):
+    """Uçtan uca bir senaryoyu mock API ile test eder ve oturum kullanımını doğrular."""
     # Pytrends'in davranışını taklit et
     mock_interest_df = pd.DataFrame({"test keyword": [50, 60, 70]})
     mock_trend_req.return_value.interest_over_time.return_value = mock_interest_df
 
+    # Session objesinin mock'unu al
+    mock_session_instance = mock_session.return_value
+
     keywords = ["test keyword"]
     df = analyze_keywords(keywords, geo="TR", use_proxy=False)
 
+    # TrendReq'in doğru argümanlarla çağrıldığını kontrol et
+    mock_trend_req.assert_called()
+    call_args = mock_trend_req.call_args
+    assert 'requests_args' in call_args.kwargs
+    assert 'session' in call_args.kwargs['requests_args']
+    assert call_args.kwargs['requests_args']['session'] == mock_session_instance
+
+    # Sonuçları doğrula
     assert len(df) == 1
     assert df["Kelime"].iloc[0] == "test keyword"
     assert df["Trend Skoru"].iloc[0] == 60.0  # (50+60+70)/3

@@ -4,6 +4,7 @@ import random
 import json
 import pandas as pd
 import os
+import requests
 from pytrends.request import TrendReq
 from ml_model import predict_category
 from datetime import datetime
@@ -66,7 +67,7 @@ def log_feedback_history(keyword, category):
 
         with open(FEEDBACK_HISTORY_FILE, "w", encoding="utf-8") as f:
             json.dump(history, f, ensure_ascii=False, indent=2)
-            
+
         logger.info(f"Geri bildirim geçmişi güncellendi: {keyword} -> {category}")
     except IOError as e:
         logger.error(f"Geri bildirim geçmişi dosyasına yazılırken hata: {e}")
@@ -74,17 +75,25 @@ def log_feedback_history(keyword, category):
 def get_trend_score(keyword, geo="TR", timeframe="today 12-m", use_proxy=False, max_retries=3, available_proxies=None):
     """
     Google Trends'den bir anahtar kelimenin ortalama trend skorunu alır.
-    Başarısız proxy'leri tekrar denemez.
+    Oturum yönetimi ve başarısız proxy'leri atlama mekanizması içerir.
     """
     if use_proxy and available_proxies is None:
         available_proxies = load_proxies()
+
+    # Istekler için bir oturum oluştur
+    session = requests.Session()
+    # Standart bir tarayıcı gibi görünmek için User-Agent ekle
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    })
 
     for attempt in range(max_retries):
         proxy = None
         if use_proxy and available_proxies:
             proxy = random.choice(available_proxies)
         
-        proxy_dict = {"https": proxy, "http": proxy} if proxy else None
+        # Oturumun proxy ayarlarını güncelle
+        session.proxies = {"https": proxy, "http": proxy} if proxy else {}
 
         try:
             logger.info(
@@ -92,43 +101,33 @@ def get_trend_score(keyword, geo="TR", timeframe="today 12-m", use_proxy=False, 
                 f"(Geo: {geo}, Proxy: {proxy or 'Yok'})"
             )
 
-            # pytrends objesini her denemede yeniden oluştur
-            pytrends = TrendReq(hl="tr-TR", tz=180, timeout=(10, 25), proxies=proxy_dict, retries=2)
+            # Pytrends'e oluşturduğumuz oturumu ver
+            pytrends = TrendReq(hl="tr-TR", tz=180, timeout=(10, 25), requests_args={'session': session})
             pytrends.build_payload([keyword], timeframe=timeframe, geo=geo)
             df = pytrends.interest_over_time()
 
-            if not df.empty and keyword in df.columns:
+            if df is not None and not df.empty and keyword in df.columns:
                 score = round(df[keyword].mean(), 2)
-                if score > 0:
-                    logger.info(f"✅ '{keyword}' için ortalama trend skoru bulundu: {score}")
-                    return score, available_proxies
-                else:
-                    logger.warning(f"⚠️ '{keyword}' için trend skoru 0. Düşük ilgi veya veri yok.")
-                    # 0 skorunu geçerli kabul et ve döngüden çık
-                    return 0.0, available_proxies
+                logger.info(f"✅ '{keyword}' için ortalama trend skoru bulundu: {score}")
+                return score, available_proxies
             else:
-                logger.warning(f"📉 '{keyword}' için Google Trends'den boş veri seti döndü.")
-                # Boş veri seti geçerli bir durum olabilir, döngüden çık
+                logger.warning(f"📉 '{keyword}' için Google Trends'den veri alınamadı veya skor 0.")
                 return 0.0, available_proxies
 
         except Exception as e:
-            # Hataları daha spesifik yakala (ör: ConnectionError, Timeout)
             error_msg = f"❌ '{keyword}' işlenirken hata (Proxy: {proxy}): {type(e).__name__} - {e}"
             logger.error(error_msg)
             
-            # Hatayı Streamlit arayüzünde göster
             if "trend_errors" in st.session_state:
                 st.session_state.trend_errors.append(error_msg)
 
-            # Başarısız olan proxy'yi listeden kaldır
             if use_proxy and proxy and available_proxies:
                 available_proxies.remove(proxy)
                 logger.info(f"Proxy {proxy} başarısız olduğu için listeden kaldırıldı.")
 
-            # Son deneme değilse bekle
             if attempt < max_retries - 1:
-                wait_time = random.uniform(3, 7)
-                logger.info(f" yeniden denemeden önce {wait_time:.1f} saniye bekleniyor...")
+                wait_time = random.uniform(5, 10) # Bekleme süresini biraz artır
+                logger.info(f"Yeniden denemeden önce {wait_time:.1f} saniye bekleniyor...")
                 time.sleep(wait_time)
 
     logger.error(f"🚨 '{keyword}' için trend skoru tüm denemeler sonunda alınamadı.")
