@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+
+# Hassas Bilgiler
+cookie.txt
+secrets.json
+*.log
+
+# IDE Klasörleri
+.vscode/
+.idea/
