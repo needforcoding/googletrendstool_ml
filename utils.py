@@ -116,9 +116,19 @@ def get_trend_score(keyword, geo="TR", timeframe="today 12-m", use_proxy=False):
 
     except TypeError as e:
         if "object of type 'NoneType' has no len()" in str(e):
-            error_msg = f"Pytrends ('{keyword}') için veri alamadı. Bu genellikle Google API'sindeki geçici bir değişiklikten veya ağ sorunlarından kaynaklanır. Lütfen daha sonra tekrar deneyin."
-            logging.error(f"Pytrends NoneType hatası ('{keyword}'): {e}")
+            logging.warning(f"Pytrends NoneType hatası aldı ('{keyword}'). Manuel yönteme geçiliyor.")
+            st.session_state.setdefault("trend_errors", []).append(f"Pytrends '{keyword}' için başarısız, manuel yöntem denendi.")
+
+            # Yedek manuel yöntemi dene
+            manual_score = get_trend_score_manual(keyword, geo=geo, timeframe=timeframe, proxy_dict=proxy_dict)
+            if manual_score is not None:
+                return manual_score
+
+            # Manuel yöntem de başarısız olursa hata ver.
+            error_msg = f"Pytrends ve Manuel yöntemler '{keyword}' için veri alamadı. Google API'de genel bir sorun olabilir."
+            logging.error(error_msg)
             st.session_state.setdefault("trend_errors", []).append(error_msg)
+
         else:
             error_msg = f"Pytrends içinde beklenmedik bir tip hatası ('{keyword}'): {e}"
             logging.error(error_msg)
@@ -129,6 +139,82 @@ def get_trend_score(keyword, geo="TR", timeframe="today 12-m", use_proxy=False):
         logging.error(error_msg)
         st.session_state.setdefault("trend_errors", []).append(error_msg)
         return 0.0
+
+def get_trend_score_manual(keyword, geo="TR", timeframe="today 12-m", proxy_dict=None):
+    """Requests kullanarak Google Trends verisini manuel olarak çeker."""
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36"
+    }
+
+    # Adım 1: Token almak için ilk isteği yap.
+    explore_url = "https://trends.google.com/trends/api/explore"
+    params = {
+        "hl": "tr-TR",
+        "tz": "180",
+        "req": json.dumps({
+            "comparisonItem": [{"keyword": keyword, "geo": geo, "time": timeframe}],
+            "category": 0,
+            "property": ""
+        })
+    }
+
+    try:
+        # Google'dan cookie almak için bir session başlat
+        session = requests.Session()
+        session.get("https://trends.google.com", headers=headers, proxies=proxy_dict, timeout=10)
+
+        explore_response = session.get(explore_url, params=params, headers=headers, proxies=proxy_dict, timeout=10)
+
+        if explore_response.status_code != 200:
+            logging.error(f"Manuel Trend: Explore isteği başarısız oldu. Status: {explore_response.status_code}")
+            return None
+
+        # Yanıttan widget token'ını al
+        # Google'ın yanıtı genellikle `)]}'` ile başlar, bunu temizlememiz gerekir.
+        widget_data_str = explore_response.text[4:]
+        widgets = json.loads(widget_data_str)["widgets"]
+        token = widgets[0].get("token")
+
+        if not token:
+            logging.error("Manuel Trend: Yanıtta widget token'ı bulunamadı.")
+            return None
+
+        # Adım 2: Token ile asıl veriyi çek.
+        widget_url = "https://trends.google.com/trends/api/widgetdata/multiline"
+        widget_params = {
+            "hl": "tr-TR",
+            "tz": "180",
+            "req": json.dumps({"time": timeframe, "resolution": "WEEK", "locale": "tr", "comparisonItem": [{"geo": {"country": geo}, "complexKeywordsRestriction": {"keyword": [{"type": "BROAD", "value": keyword}]}}], "requestOptions": {"property": "", "backend": "IZG", "category": 0}}),
+            "token": token
+        }
+
+        data_response = session.get(widget_url, params=widget_params, headers=headers, proxies=proxy_dict, timeout=10)
+
+        if data_response.status_code != 200:
+            logging.error(f"Manuel Trend: Veri isteği başarısız oldu. Status: {data_response.status_code}")
+            return None
+
+        # Veriyi işle ve ortalamayı hesapla
+        data_str = data_response.text[5:] # Bu da `)]}'\n` ile başlayabilir
+        data = json.loads(data_str)
+
+        time_series = data.get("default", {}).get("timelineData", [])
+        if not time_series:
+            logging.warning(f"Manuel Trend: '{keyword}' için zaman serisi verisi bulunamadı.")
+            return 0.0
+
+        avg_score = sum(point.get("value", [0])[0] for point in time_series) / len(time_series)
+        logging.info(f"Manuel Trend: '{keyword}' için ortalama skor: {round(avg_score, 2)}")
+        return round(avg_score, 2)
+
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Manuel Trend: İstek sırasında hata: {e}")
+        return None
+    except (json.JSONDecodeError, KeyError, IndexError) as e:
+        logging.error(f"Manuel Trend: Yanıt işlenirken hata: {e}")
+        return None
+
 
 def analyze_keywords(keywords, geo="TR", timeframe="today 12-m", manual_map={}, use_proxy=False):
     results = []
