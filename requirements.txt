@@ -1,7 +1,0 @@
-streamlit
-pandas
-pytrends
-plotly
-scikit-learn
-joblib
-tabulate
