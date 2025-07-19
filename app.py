@@ -48,10 +48,10 @@ if st.session_state.get('reset_triggered'):
         st.info("Değişikliklerin yansıması için uygulama birkaç saniye içinde yeniden başlatılacak...")
         del st.session_state['reset_triggered'] # State'i temizle
         time.sleep(3)
-        st.experimental_rerun()
+        st.rerun()
     if st.button("Hayır, İptal Et"):
         del st.session_state['reset_triggered'] # State'i temizle
-        st.experimental_rerun()
+        st.rerun()
 
 # 🔽 Veri Girişi
 with st.form("input_form"):
